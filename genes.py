@@ -1,6 +1,19 @@
 from enum import Enum, auto
 from itertools import product
 
+class Gender(Enum):
+    MALE = auto()
+    FEMALE = auto()
+    BOTH = auto()
+
+    def __str__(self):
+        if self == Gender.MALE:
+            return "(M)"
+        elif self == Gender.FEMALE:
+            return "(F)"
+        else:
+            return "(M/F)"
+
 class Phenotype(Enum):
     WHITE_EYES = auto()
     ORANGE_EYES = auto()
@@ -45,7 +58,7 @@ class Balancer(Allele):
 
 class Transgene(Allele):
     def __init__(self, name):
-        super().__init__(name, Phenotype.NONE, False, False, False)
+        super().__init__(name, Phenotype.NONE, True, False, False)
 
     def get_phenotype(self, has_white_eyes):
         if has_white_eyes:
@@ -57,12 +70,12 @@ class Transgene(Allele):
 
 class Mutation(Allele):
     def __init__(self, name, phenotype):
-        super().__init__(name, phenotype, False, False, True)
+        super().__init__(name, phenotype, True, False, True)
 
 class AlleleType():
 
     Y = Allele("Y", "Male", False, True, True)
-    PLUS = Allele("PLUS", Phenotype.NONE, False, False, False)
+    PLUS = Allele("PLUS", Phenotype.NONE, True, False, False)
 
     # Markers
     SM6 = Marker("SM6", Phenotype.CURLY_WINGS)
@@ -100,10 +113,9 @@ class Gene():
             raise ValueError("Gene Error: allele1 and allele2 must be different")
         if not isinstance(allele1, Allele) or not isinstance(allele2, Allele):
             raise ValueError("Gene Error: allele1 and allele2 must be instances of allele")
+
         self.allele1 = allele1
         self.allele2 = allele2
-        self.contains_transgene = ((isinstance(allele1, Transgene) and allele1 != AlleleType.PLUS) or (isinstance(allele2, Transgene) and allele2 != AlleleType.PLUS))
-        self.contains_both_transgenes = ((isinstance(allele1, Transgene) and allele1 != AlleleType.PLUS) and (isinstance(allele2, Transgene) and allele2 != AlleleType.PLUS))
 
     def get_allele_not_transgene(self):
         if isinstance(self.allele1, Transgene) and isinstance(self.allele2, Transgene):
@@ -142,6 +154,7 @@ class Line:
         self.genotype = genotype
         self.has_white_eyes = (self[0] == Gene(AlleleType.WMINUS, AlleleType.WMINUS)) or (self[0] == Gene(AlleleType.WMINUS, AlleleType.Y))
         self.id = id
+        self.gender = Gender.BOTH
 
     def get_genotype(self):
         """Return a list of genes in the starter line."""
@@ -187,7 +200,7 @@ class Line:
             else:
                 gene_strs.append("Unknown")  # Fallback for unexpected types
 
-        return ", ".join(gene_strs)
+        return ", ".join(gene_strs) + " | " + str(self.gender)
 
 
 def cross_chromosome(gene1, gene2):
@@ -355,15 +368,16 @@ def main(starter_lines, target):
     print_crosses(path, s_lines[1])
 
 # Starter lines
-lineA = Line(AlleleType.WMINUS, Gene(AlleleType.PLUS, AlleleType.PLUS), Gene(AlleleType.TM2, AlleleType.ORB), AlleleType.PLUS)
-lineB = Line(AlleleType.WMINUS, Gene(AlleleType.DNAD, AlleleType.TM2), Gene(AlleleType.PLUS, AlleleType.TM3), AlleleType.PLUS)
-lineC = Line(AlleleType.WPLUS, Gene(AlleleType.SM6, AlleleType.TM6b), Gene(AlleleType.SOS, AlleleType.TM6b), AlleleType.PLUS)
+lineA = Line(AlleleType.WMINUS, Gene(AlleleType.UAS, AlleleType.PLUS), Gene(AlleleType.PLUS, AlleleType.PLUS), AlleleType.PLUS)
+lineB = Line(AlleleType.WPLUS, Gene(AlleleType.DNAD, AlleleType.TM3), Gene(AlleleType.PLUS, AlleleType.PLUS), AlleleType.PLUS)
+lineC = Line(AlleleType.WPLUS, Gene(AlleleType.PLUS, AlleleType.TM2), Gene(AlleleType.SOS, AlleleType.TM6b), AlleleType.PLUS)
+lineD = Line(AlleleType.WMINUS, Gene(AlleleType.PLUS, AlleleType.PLUS), Gene(AlleleType.DNDB, AlleleType.CyO), AlleleType.PLUS)
 
 # Target
-target = Line(AlleleType.WMINUS, Gene(AlleleType.DNAD, AlleleType.TM6b), Gene(AlleleType.TM6b, AlleleType.ORB), AlleleType.PLUS)
+target = Line(AlleleType.WMINUS, Gene(AlleleType.DNAD, AlleleType.UAS), Gene(AlleleType.SOS, AlleleType.DNDB), AlleleType.PLUS)
 
 # Compute
-main([lineA, lineB, lineC], target)
+main([lineA, lineB, lineC, lineD], target)
 
 
 
