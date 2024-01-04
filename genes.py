@@ -57,11 +57,12 @@ class Balancer(Allele):
         super().__init__(name, phenotype, False, True, True)
 
 class Transgene(Allele):
-    def __init__(self, name):
+    def __init__(self, name, mwc):
         super().__init__(name, Phenotype.NONE, True, False, False)
+        self.mwc = mwc
 
     def get_phenotype(self, has_white_eyes):
-        if has_white_eyes:
+        if has_white_eyes and mwc:
             self.visible = True
             return Phenotype.ORANGE_EYES
         else:
@@ -89,13 +90,13 @@ class AlleleType():
     TM3 = Balancer("TM3", Phenotype.SHORT_BRISTLES)
     TM6b = Balancer("Tm6b", Phenotype.SHOULDER_HAIR)
 
-    # Transgenes
-    XGAL4 = Transgene("XGAL4")
-    DNAD = Transgene("DN-AD")
-    SOS = Transgene("SOS")
-    DNDB = Transgene("DN-DB")
-    ORB = Transgene("ORB")
-    UAS = Transgene("UAS-SPARC")
+    # Transgenes (we should add mwc as a parameter)
+    XGAL4 = Transgene("XGAL4", True)
+    DNAD = Transgene("DN-AD", True)
+    SOS = Transgene("SOS", True)
+    DNDB = Transgene("DN-DB", True)
+    ORB = Transgene("ORB", True)
+    UAS = Transgene("UAS-SPARC", True)
 
     # Mutations
     WMINUS = Mutation("W-", Phenotype.WHITE_EYES)
@@ -224,13 +225,16 @@ def cross_chromosome(gene1, gene2):
 def cross_lines(line1, line2):
     all_chromosome_gene_combinations = []
 
+    # crosses each chromosome, adds to list
     for i in range(4):
         crossed_genes = cross_chromosome(line1[i], line2[i])
         all_chromosome_gene_combinations.append(crossed_genes)
 
+    # adds together chromosomes --> generates all possible lines
     lines = [Line(*combination) for combination in product(*all_chromosome_gene_combinations)]
 
     # Handling non-hashable phenotypes
+    # adds unique chromosomes to list
     phenotype_dict = {}
     for line in lines:
         phenotype = line.get_phenotype()
