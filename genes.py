@@ -35,14 +35,13 @@ class Phenotype(Enum):
             return self.value < other.value
         return NotImplemented
 
-class Allele:
+class Gene:
     def __init__(self, name, phenotype, recombination, homozygous_lethal, visible):
         self.name = name
         self.phenotype = phenotype
         self.recombination = recombination
         self.homozygous_lethal = homozygous_lethal
         self.visible = visible
-        self.recombinated_with = None
 
     def __str__(self):
         return self.name
@@ -51,34 +50,27 @@ class Allele:
         return self.phenotype
 
     def __eq__(self, other):
-        if isinstance(other, Allele):
-            if self.recombinated_with and other.recombinated_with:
-                return sorted([self.name, self.recombinated_with.name]) == sorted([other.name, other.recombinated_with.name])
-            elif not self.recombinated_with and not other.recombinated_with:
-                return self.name == other.name
-            else:
-                return False
+        if isinstance(other, Gene):
+            return self.name == other.name
+        return NotImplemented
+
+    def __lt__(self, other):
+        if isinstance(other, Gene):
+            return self.name < other.name
         return NotImplemented
 
     def __hash__(self):
         return hash(self.name)
 
-    def recombinate_with(self, a):
-        if isinstance(a, Allele):
-            self.recombinated_with = a
-            return self
-        else:
-            raise ValueError("Allele recombinate_with: Must recombinate with allele")
-
-class Marker(Allele):
+class Marker(Gene):
     def __init__(self, name, phenotype):
         super().__init__(name, phenotype, True, True, True)
 
-class Balancer(Allele):
+class Balancer(Gene):
     def __init__(self, name, phenotype):
         super().__init__(name, phenotype, False, True, True)
 
-class Transgene(Allele):
+class Transgene(Gene):
     def __init__(self, name):
         super().__init__(name, Phenotype.NONE, True, False, False)
 
@@ -90,14 +82,14 @@ class Transgene(Allele):
             self.visible = False
             return Phenotype.NONE
 
-class Mutation(Allele):
+class Mutation(Gene):
     def __init__(self, name, phenotype):
         super().__init__(name, phenotype, True, False, True)
 
-class AlleleType():
+class GeneType():
 
-    Y = Allele("Y", Phenotype.MALE, False, True, True)
-    PLUS = Allele("PLUS", Phenotype.NONE, True, False, False)
+    Y = Gene("Y", Phenotype.MALE, False, True, True)
+    PLUS = Gene("PLUS", Phenotype.NONE, True, False, False)
 
     # Markers
     SM6 = Marker("SM6", Phenotype.CURLY_WINGS)
@@ -123,122 +115,151 @@ class AlleleType():
     WMINUS = Mutation("W-", Phenotype.WHITE_EYES)
     WPLUS = Mutation("W+", Phenotype.RED_EYES)
 
-class Gene():
-    def __init__(self, allele1, allele2=None):
-        if allele2 is None:
-            # Only one gene provided, set gene2 to a default value
-            if allele1.homozygous_lethal:
-                allele2 = AlleleType.PLUS
-            else:
-                allele2 = allele1
-        if (allele1 == allele2) and (allele1.homozygous_lethal or allele2.homozygous_lethal):
-            raise ValueError("Gene Error: allele1 and allele2 must be different")
-        if not isinstance(allele1, Allele) or not isinstance(allele2, Allele):
-            raise ValueError("Gene Error: allele1 and allele2 must be instances of allele")
+class Chromatid():
+    def __init__(self, genes):
+        if len(genes) > 2:
+            raise ValueError("Chromatid should have max two genes on it")
+        self.genes = genes
 
-        self.allele1 = allele1
-        self.allele2 = allele2
+    '''
+    Called when sister chromatid is not specified in the chromosome
+    '''
+    def get_implied_sister_chromatid(self):
+        if not self.genes:
+            raise ValueError("Chromatid must have at least one gene to get implied sister chromatid")
 
-    def get_allele_not_transgene(self):
-        if isinstance(self.allele1, Transgene) and isinstance(self.allele2, Transgene):
-            return None
-        elif isinstance(self.allele1, Transgene):
-            return self.allele2
-        else:
-            return self.allele1
+        return Chromatid([GeneType.PLUS if gene.homozygous_lethal else gene for gene in self.genes])
 
     def get_phenotype(self, has_white_eyes):
-        if (self.allele1.recombinated_with):
-            return sorted([self.allele1.get_phenotype(has_white_eyes), self.allele1.recombinated_with.get_phenotype(has_white_eyes), self.allele2.get_phenotype(has_white_eyes)]) 
-        else:
-            return sorted([self.allele1.get_phenotype(has_white_eyes), self.allele2.get_phenotype(has_white_eyes)])
+        return {gene.get_phenotype(has_white_eyes) for gene in self.genes}
 
-    def can_undergo_recombination(self):
-        return self.allele1.recombination and self.allele2.recombination and (self.allele1 != self.allele2)
+    def num_genes(self):
+        return len(self.genes)
 
-    # Gene undergoes recombination
-    def undergo_recombination(self):
-        if self.can_undergo_recombination():
-            recombinated_allele = copy.deepcopy(self.allele1)
-            recombinated_allele.recombinate_with(copy.deepcopy(self.allele2))
-            recombinated_allele.recombination = False
-            return Gene(recombinated_allele, AlleleType.PLUS)
+    def get_visual_genes(self):
+        return {gene for gene in self.genes if gene.visible}
+
+    def generate_gene_combos(self):
+        gene_combos = []
+
+        if len(self.genes) > 0:
+            gene_combos.append([self.genes[0]])
+        if len(self.genes) > 1:
+            gene_combos.append([self.genes[1]])
+            gene_combos.append(self.genes)
+
+        return gene_combos
+
+    def __getitem__(self, index):
+        """Get the gene at the specified index."""
+        if 0 <= index < len(self.genes):
+            return self.genes[index]
         else:
-            raise ValueError("Gene Error: this gene cannot undergo recombination-- do not force it to!")
+            raise IndexError("Index out of range")
+
 
     def __str__(self):
-        if (self.allele1 == self.allele2):
-            return f"{self.allele1.name}"
-        elif (self.allele1 == AlleleType.PLUS and self.allele2 != AlleleType.PLUS):
-            return f"{self.allele2.name}/{self.allele1.name}"
-        elif (self.allele1.recombinated_with != None):
-             return f"{self.allele1.name} {self.allele1.recombinated_with.name}/{self.allele2.name}"
-        elif (self.allele2 == AlleleType.Y):
-            return f"{self.allele1.name}"
-        elif (self.allele1 == AlleleType.Y):
-            return f"{self.allele2.name}"
-        else:
-            return f"{self.allele1.name}/{self.allele2.name}"
+        return ''.join(gene.name for gene in self.genes)
 
     def __eq__(self, other):
-        return ((self.allele1, self.allele2) == (other.allele1, other.allele2)) or ((self.allele2, self.allele1) == (other.allele1, other.allele2))
+        return sorted(self.genes) == sorted(other.genes)
 
     def __hash__(self):
-        return hash(self.allele1) + hash(self.allele2)
+        # Sort the genes and concatenate their names to create a unique string
+        sorted_gene_names = ''.join(sorted(gene.name for gene in self.genes))
+        return hash(sorted_gene_names)
+
+class Chromosome():
+    def __init__(self, chromatid1, chromatid2=None):
+        if isinstance(chromatid1, Gene) and isinstance(chromatid2, Gene):
+            # Cast these genes into chromatids-- this helps for defining the starter lines
+            # Maybe remove this once we have a good UI
+            self.chromatid1 = Chromatid([chromatid1])
+            self.chromatid2 = Chromatid([chromatid2])
+        elif isinstance(chromatid1, Chromatid) and chromatid2 is None:
+            # Given one chromatid
+            self.chromatid1 = chromatid1
+            self.chromatid2 = chromatid1.get_implied_sister_chromatid()
+        else:
+            # TODO Check if can be paired with chromatid
+            self.chromatid1 = chromatid1
+            self.chromatid2 = chromatid2
+
+    def get_phenotype(self, has_white_eyes):
+        return sorted(chromatid1.get_phenotype(has_white_eyes) + chromatid2.get_phenotype(has_white_eyes))
+
+    def can_undergo_recombination(self):
+        # Limit number of recombinations to 1 (for now...)
+        # TODO W+ W-
+        if self.chromatid1.num_genes() == 1 and self.chromatid2.num_genes() == 1:
+            return self.chromatid1[0].recombination and self.chromatid2[0].recombination and (self.chromatid1[0] != self.chromatid2[0])
+        else:
+            return False
+
+    # IMPORTANT: Should only be called on the first chromosome
+    def has_white_eyes(self):
+        has_wminus_in_chromatid1 = GeneType.WMINUS in self.chromatid1.genes
+        has_wminus_in_chromatid2 = GeneType.WMINUS in self.chromatid2.genes
+
+        has_y_in_chromatid1 = GeneType.Y in self.chromatid1.genes
+        has_y_in_chromatid2 = GeneType.Y in self.chromatid2.genes
+
+        return (has_wminus_in_chromatid1 and (has_wminus_in_chromatid2 or has_y_in_chromatid2)) or \
+               (has_wminus_in_chromatid2 and (has_wminus_in_chromatid1 or has_y_in_chromatid1))
+
+    # IMPORTANT: Should only be called on the first chromosome
+    def is_male(self):
+        return (GeneType.Y in self.chromatid1.genes) or (GeneType.Y in self.chromatid2.genes)
+
+    def get_visual_genes(self):
+        return self.chromatid1.get_visual_genes() | self.chromatid2.get_visual_genes()
+
+    def get_phenotype(self):
+        return self.chromatid1.get_visual_genes() | self.chromatid2.get_visual_genes()
+
+    def generate_haploids(self):
+        return self.chromatid1.generate_gene_combos() + self.chromatid2.generate_gene_combos()
+
+    def __str__(self):
+        if (self.chromatid1 == self.chromatid2):
+            return f"{str(self.chromatid1)}"
+        else:
+            return f"{str(self.chromatid1)}/{str(self.chromatid2)}"
+
+    def __eq__(self, other):
+        return ((self.chromatid1, self.chromatid2) == (other.chromatid1, other.chromatid2)) or ((self.chromatid2, self.chromatid1) == (other.chromatid1, other.chromatid2))
+
+    def __hash__(self):
+        # TODO Potentially review
+        return hash(self.chromatid1) + hash(self.chromatid2)
 
 class Line:
-    def __init__(self, gene1=AlleleType.PLUS, gene2=AlleleType.PLUS, gene3=AlleleType.PLUS, gene4=AlleleType.PLUS, id=-1):
-        genotype = [gene1, gene2, gene3, gene4]
+    def __init__(self, chromosome1=GeneType.PLUS, chromosome2=GeneType.PLUS, chromosome3=GeneType.PLUS, chromosome4=GeneType.PLUS, id=-1):
+        genotype = [chromosome1, chromosome2, chromosome3, chromosome4]
 
         for i in range(len(genotype)):
-            # Check if the gene is an instance of Allele and has homozygous_lethal=True
-            if isinstance(genotype[i], Allele):
-                genotype[i] = Gene(genotype[i])
+            # Cast genes to chromosomes
+            if isinstance(genotype[i], Gene):
+                genotype[i] = Chromosome(Chromatid([genotype[i]]))
 
         self.genotype = genotype
-        self.has_white_eyes = (self[0] == Gene(AlleleType.WMINUS, AlleleType.WMINUS)) or (self[0] == Gene(AlleleType.WMINUS, AlleleType.Y))
+        self.has_white_eyes = self[0].has_white_eyes()
         self.id = id
         
-        if (self[0].allele1 == AlleleType.Y or self[0].allele2 == AlleleType.Y):
+        if (self[0].is_male()):
             self.gender = Gender.MALE
         else:
             self.gender = Gender.FEMALE
-
-    def can_undergo_recombination(self):
-        can_undergo_recombination = False
-        for i in range(4):
-            can_undergo_recombination = can_undergo_recombination or self[i].can_undergo_recombination()
-        return can_undergo_recombination and (self.gender == Gender.FEMALE)
-
-    def undergo_recombination(self):
-        if self.can_undergo_recombination():
-            for i in range(4):
-                if (self[i].can_undergo_recombination()):
-                    self.genotype[i] = self[i].undergo_recombination()
-        else:
-            raise ValueError("Line Error: this line cannot undergo recombination-- do not force it to!")
 
     def get_genotype(self):
         """Return a list of genes in the starter line."""
         return self.genotype
 
-    def get_visual_alleles(self):
-        alleles = set()
-        for i in range(len(self.genotype)):
-            if not isinstance(self[i], Gene):
-                raise ValueError("All genes in genotype must be of type gene")
-            else:
-                if (self[i].allele1.visible):
-                    alleles.add(self[i].allele1)
-                if (self[i].allele2.visible):
-                    alleles.add(self[i].allele2)
-        return alleles
+    def get_visual_genes(self):
+        return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
 
     def get_phenotype(self):
-        phenotype = []
-        for gene in self.genotype:
-            phenotype.append(gene.get_phenotype(self.has_white_eyes))
-        return phenotype
+        return set().union(*(chromosome.get_phenotype() for chromosome in self.genotype))
 
     def __getitem__(self, index):
         """Get the gene at the specified index."""
@@ -255,31 +276,30 @@ class Line:
 
     def __str__(self):
         """String representation of the starter line."""
-        gene_strs = []
-        for gene in self.genotype:
-            if isinstance(gene, Gene):
-                gene_strs.append(str(gene))
+        chrom_strs = []
+        for chromosome in self.genotype:
+            if isinstance(chromosome, Chromosome):
+                chrom_strs.append(str(chromosome))
             else:
-                gene_strs.append("Unknown")  # Fallback for unexpected types
+                chrom_strs.append("??")  # Fallback for unexpected types
 
-        return ", ".join(gene_strs)
+        return ", ".join(chrom_strs)
 
 
-def cross_chromosome(gene1, gene2):
-        if not isinstance(gene1, Gene) or not isinstance(gene2, Gene):
-            raise ValueError("cross_chromosome Error: all genes should be represented as two alleles")
+def cross_chromosome(chromosome1, chromosome2):
+        if not isinstance(chromosome1, Chromosome) or not isinstance(chromosome2, Chromosome):
+            raise ValueError("cross_chromosome Error: both chromosomes should be represented as chromosomes")
 
         crossed = set()  # Initialize an empty set
-        alleles1 = [gene1.allele1, gene1.allele2]
-        alleles2 = [gene2.allele1, gene2.allele2]
+        chromatids1 = chromosome1.generate_haploids()
+        chromatids2 = chromosome2.generate_haploids()
 
         # Perform initial crossing
-        for a1 in alleles1:
-            for a2 in alleles2:
+        for chromatid1 in chromatids1:
+            for chromatid2 in chromatids2:
                 try:
-                    g = Gene(a1, a2)
-                    crossed.add(g)
-
+                    c = Chromosome(Chromatid(chromatid1), Chromatid(chromatid2))
+                    crossed.add(c)
                 except ValueError:
                     continue
 
@@ -301,9 +321,6 @@ def cross_lines(line1, line2):
     # Handling non-hashable phenotypes
     phenotype_dict = {}
     for line in lines:
-        if (line.can_undergo_recombination()):
-            line.undergo_recombination()
-
         phenotype = line.get_phenotype()
         phenotype_key = str(phenotype)  # Convert phenotype to a string or other hashable form
 
@@ -317,30 +334,12 @@ def cross_lines(line1, line2):
 
     return unique_lines
 
-'''
-Returns False if the target contains alleles not present in its starter lines.
-'''
-def dummy_check(starter_lines, target):
-     # Collect all alleles from the starter lines
-    starter_alleles = set()
-    for line in starter_lines:
-        for gene in line.genotype:
-            starter_alleles.add(gene.allele1)
-            starter_alleles.add(gene.allele2)
-
-    # Check if all alleles in the target line are present in the starter lines
-    for gene in target.genotype:
-        if gene.allele1 not in starter_alleles or gene.allele2 not in starter_alleles:
-            return False  # Target contains an allele not found in starter lines
-
-    return True
-
 def compute_crosses(starter_lines, target):
     seen_lines = set(starter_lines)
     queue = [(line, []) for line in starter_lines]
 
-    if not (dummy_check(starter_lines, target)):
-        return None
+    # if not (dummy_check(starter_lines, target)):
+    #     return None
 
     while queue:
         new_queue = []
@@ -369,69 +368,39 @@ def compute_crosses(starter_lines, target):
 
         queue = new_queue
 
-def compute_pick_for(line1, line2, end_line):
-    alleles1 = line1.get_visual_alleles()
-    alleles2 = line2.get_visual_alleles()
+def compute_pick_for(line1, line2, progeny_line):
+    genes1 = line1.get_visual_genes()
+    genes2 = line2.get_visual_genes()
 
-    all_alleles = alleles1.union(alleles2)
+    all_genes = genes1 | genes2
 
     pick_for = set()
     pick_against = set()
 
-    alleles_end = end_line.get_visual_alleles()
+    progeny_genes = progeny_line.get_visual_genes()
 
     # Compute pick-for, pick-against
-    for allele in all_alleles:
-        if allele in alleles_end:
-            pick_for.add(allele)
+    for gene in all_genes:
+        if gene in progeny_genes:
+            pick_for.add(gene)
         else:
-            pick_against.add(allele)
+            pick_against.add(gene)
 
     # Print pick-for, pick-against
-    for a in pick_for:
-        print("+" + str(a))
+    for g in pick_for:
+        print("+" + str(g))
 
-    for a in pick_against:
-        print("-" + str(a))
+    for g in pick_against:
+        print("-" + str(g))
 
 def init_starter_lines(starter_lines):
     LINE_ID = 1
-    modified_starter_lines = []
 
     for line in starter_lines:
-        # Copy the original line
-        original_line = copy.deepcopy(line)
-        original_line.id = LINE_ID
-
-        modified_starter_lines.append(original_line)
-
-        # Create a copy with the opposite gender
-        opposite_gender_line = copy.deepcopy(line)
-
-        if line.gender == Gender.MALE:
-            # If original is male, create a female copy
-            opposite_gender_line.gender = Gender.FEMALE
-            # For females, second allele of the first gene should not be Y
-            if isinstance(opposite_gender_line[0], Gene) and opposite_gender_line[0].allele2 == AlleleType.Y:
-                opposite_gender_line.genotype[0] = Gene(opposite_gender_line[0].allele1, opposite_gender_line[0].allele1)
-                if opposite_gender_line.can_undergo_recombination():
-                    raise ValueError("Init starter lines-- starting lines should not be able to undergo recombination")
-            else:
-                raise ValueError("Init starter lines-- creating opposite gender error")
-        else:
-            # If original is female, create a male copy
-            opposite_gender_line.gender = Gender.MALE
-            # For males, second allele of the first gene should be Y
-            if isinstance(opposite_gender_line[0], Gene):
-                opposite_gender_line.genotype[0] = Gene(opposite_gender_line[0].allele1, AlleleType.Y)
-            else:
-                raise ValueError("Init starter lines-- creating opposite gender error")
-        
-        opposite_gender_line.id = LINE_ID
+        line.id = LINE_ID
         LINE_ID += 1
-        modified_starter_lines.append(opposite_gender_line)
 
-    return modified_starter_lines, LINE_ID
+    return starter_lines, LINE_ID
 
 def print_crosses(crosses, num_starter_lines):
     if crosses == None:
@@ -471,10 +440,10 @@ def main(starter_lines, target):
     print_crosses(path, s_lines[1])
 
 # Starter lines
-lineA = Line(AlleleType.WPLUS, AlleleType.PLUS, Gene(AlleleType.TM2, AlleleType.TM6b), AlleleType.PLUS)
-lineB = Line(Gene(AlleleType.WPLUS, AlleleType.Y), Gene(AlleleType.S, AlleleType.CyO), Gene(AlleleType.XGAL4, AlleleType.TM6b), AlleleType.PLUS)
-lineC = Line(AlleleType.WPLUS, AlleleType.PLUS, Gene(AlleleType.DNAD, AlleleType.TM6b), AlleleType.PLUS)
+lineA = Line(Chromosome(GeneType.WPLUS, GeneType.Y), GeneType.PLUS, Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
+lineB = Line(GeneType.WMINUS, GeneType.CyO, Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
 
-target = Line(AlleleType.WPLUS, AlleleType.PLUS, Gene((AlleleType.DNAD).recombinate_with(AlleleType.XGAL4), AlleleType.TM6b), AlleleType.PLUS)
+lines = cross_lines(lineA, lineB)
 
-main([lineA, lineB, lineC], target)
+for line in lines:
+    print(line)
