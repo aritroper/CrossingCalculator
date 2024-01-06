@@ -139,17 +139,6 @@ class Chromatid():
     def get_visual_genes(self):
         return {gene for gene in self.genes if gene.visible}
 
-    def generate_gene_combos(self):
-        gene_combos = []
-
-        if len(self.genes) > 0:
-            gene_combos.append([self.genes[0]])
-        if len(self.genes) > 1:
-            gene_combos.append([self.genes[1]])
-            gene_combos.append(self.genes)
-
-        return gene_combos
-
     def __getitem__(self, index):
         """Get the gene at the specified index."""
         if 0 <= index < len(self.genes):
@@ -157,9 +146,8 @@ class Chromatid():
         else:
             raise IndexError("Index out of range")
 
-
     def __str__(self):
-        return ''.join(gene.name for gene in self.genes)
+        return "[" + ' '.join(gene.name for gene in self.genes) + "]"
 
     def __eq__(self, other):
         return sorted(self.genes) == sorted(other.genes)
@@ -171,19 +159,27 @@ class Chromatid():
 
 class Chromosome():
     def __init__(self, chromatid1, chromatid2=None):
-        if isinstance(chromatid1, Gene) and isinstance(chromatid2, Gene):
-            # Cast these genes into chromatids-- this helps for defining the starter lines
-            # Maybe remove this once we have a good UI
-            self.chromatid1 = Chromatid([chromatid1])
-            self.chromatid2 = Chromatid([chromatid2])
-        elif isinstance(chromatid1, Chromatid) and chromatid2 is None:
-            # Given one chromatid
+
+        # Casting magic
+        if isinstance(chromatid1, Gene):
+            chromatid1 = Chromatid([chromatid1])
+
+        if isinstance(chromatid2, Gene):
+            chromatid2 = Chromatid([chromatid2])
+
+        if isinstance(chromatid1, Chromatid) and chromatid2 is None:
             self.chromatid1 = chromatid1
             self.chromatid2 = chromatid1.get_implied_sister_chromatid()
+        elif isinstance(chromatid2, Chromatid) and chromatid1 is None:
+            self.chromatid1 = chromatid2.get_implied_sister_chromatid()
+            self.chromatid2 = chromatid2
         else:
-            # TODO Check if can be paired with chromatid
             self.chromatid1 = chromatid1
             self.chromatid2 = chromatid2
+
+        for gene in self.chromatid1.genes:
+            if gene.homozygous_lethal and gene in self.chromatid2.genes:
+                raise ValueError("Cannot construct this chromosome")
 
     def get_phenotype(self, has_white_eyes):
         return sorted(chromatid1.get_phenotype(has_white_eyes) + chromatid2.get_phenotype(has_white_eyes))
@@ -218,7 +214,7 @@ class Chromosome():
         return self.chromatid1.get_visual_genes() | self.chromatid2.get_visual_genes()
 
     def generate_haploids(self):
-        return self.chromatid1.generate_gene_combos() + self.chromatid2.generate_gene_combos()
+        return [self.chromatid1.genes, self.chromatid2.genes]
 
     def __str__(self):
         if (self.chromatid1 == self.chromatid2):
@@ -306,9 +302,9 @@ def cross_chromosome(chromosome1, chromosome2):
         return crossed
 
 def cross_lines(line1, line2):
-     # Return an empty list if the gender condition is not met
-    if not ((line1.gender == Gender.MALE and line2.gender == Gender.FEMALE) or (line1.gender == Gender.FEMALE and line2.gender == Gender.MALE)):
-        return []
+    # Return an empty list if the gender condition is not met
+    # if not ((line1.gender == Gender.MALE and line2.gender == Gender.FEMALE) or (line1.gender == Gender.FEMALE and line2.gender == Gender.MALE)):
+    #     return []
 
     all_chromosome_gene_combinations = []
 
@@ -338,18 +334,13 @@ def compute_crosses(starter_lines, target):
     seen_lines = set(starter_lines)
     queue = [(line, []) for line in starter_lines]
 
-    # if not (dummy_check(starter_lines, target)):
-    #     return None
-
     while queue:
-        new_queue = []
+        new_queue = [(line, []) for line in starter_lines]
         added_any_new_line = False  # Flag to check if new lines are added
 
         for i, (line1, path1) in enumerate(queue):
-            for j, (line2, path2) in enumerate(queue):
-                if i == j:  # Skip crossing a line with itself
-                    continue
-
+            for j in range(i + 1, len(queue)):  # Start from i + 1
+                line2, path2 = queue[j]
                 crossed_lines = cross_lines(line1, line2)
 
                 for crossed_line in crossed_lines:
@@ -367,6 +358,8 @@ def compute_crosses(starter_lines, target):
             return None  # No new lines added, target line is unattainable
 
         queue = new_queue
+
+    return None
 
 def compute_pick_for(line1, line2, progeny_line):
     genes1 = line1.get_visual_genes()
@@ -440,10 +433,11 @@ def main(starter_lines, target):
     print_crosses(path, s_lines[1])
 
 # Starter lines
-lineA = Line(Chromosome(GeneType.WPLUS, GeneType.Y), GeneType.PLUS, Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
-lineB = Line(GeneType.WMINUS, GeneType.CyO, Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
+lineA = Line(GeneType.WMINUS, Chromosome(GeneType.S,  GeneType.CyO), Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
+lineB = Line(GeneType.WMINUS, Chromosome(GeneType.DNAD, GeneType.CyO), Chromosome(GeneType.DNDB, GeneType.TM6b), GeneType.PLUS)
+lineC = Line(GeneType.WMINUS, Chromosome(GeneType.S,  GeneType.CyO), Chromosome(GeneType.SOS, GeneType.TM2), GeneType.PLUS)
 
-lines = cross_lines(lineA, lineB)
+lineD = Line(GeneType.WMINUS, Chromosome(GeneType.DNAD,  GeneType.CyO), Chromosome(GeneType.SOS, GeneType.TM2), GeneType.PLUS)
 
-for line in lines:
-    print(line)
+
+main([lineA, lineB, lineC], lineD)
