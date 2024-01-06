@@ -12,7 +12,7 @@ class Gender(Enum):
         elif self == Gender.FEMALE:
             return "(F)"
         else:
-            return "(M/F)"
+            raise ValueError("Gender must be M or F")
 
 class Phenotype(Enum):
     WHITE_EYES = auto()
@@ -24,6 +24,7 @@ class Phenotype(Enum):
     BIG_HALTERES = auto()
     SHOULDER_HAIR = auto()
     MALE = auto()
+    RECOMBINATED = auto() # Not really a phenotype but can be screened for with PCR
     NONE = auto()
 
     def __str__(self):
@@ -139,6 +140,16 @@ class Chromatid():
     def get_visual_genes(self):
         return {gene for gene in self.genes if gene.visible}
 
+    '''
+    Given a list of genes, returns the first index
+    to match one of these genes
+    '''
+    def get_first_idx_of(self, genes):
+        for i in range(len(genes)):
+            for gene in genes:
+                if genes[i] == gene:
+                    return i
+
     def __getitem__(self, index):
         """Get the gene at the specified index."""
         if 0 <= index < len(self.genes):
@@ -192,6 +203,27 @@ class Chromosome():
         else:
             return False
 
+    '''
+    Returns recombinated copy of self
+    '''
+    def recombinate(self):
+        # TODO double check with Janina
+        # To make this more efficient the chromosome does not need to be deep copied
+        # since the line is deep copied when recombinating line
+        if self.can_undergo_recombination():
+            recombinated = copy.deepcopy(self)
+            recombinated.chromatid1.genes.append(recombinated.chromatid2[0])
+            recombinated.chromatid2.genes[0] = GeneType.PLUS
+            return recombinated
+        else:
+            raise ValueError("Chromosome cannot be recombinated")
+
+    '''
+    Returns True if this chromosome has undergone at least 1 recombination
+    '''
+    def has_recombinated(self):
+        return len(self.chromatid1.genes) > 1 or len(self.chromatid2.genes) > 1
+
     # IMPORTANT: Should only be called on the first chromosome
     def has_white_eyes(self):
         has_wminus_in_chromatid1 = GeneType.WMINUS in self.chromatid1.genes
@@ -241,6 +273,7 @@ class Line:
         self.genotype = genotype
         self.has_white_eyes = self[0].has_white_eyes()
         self.id = id
+        self.has_recombinated = any(chromosome.has_recombinated() for chromosome in self.genotype)
         
         if (self[0].is_male()):
             self.gender = Gender.MALE
@@ -254,8 +287,45 @@ class Line:
     def get_visual_genes(self):
         return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
 
+    def can_undergo_recombination(self):
+        return (self.gender) == Gender.FEMALE and (not self.has_recombinated) and (any(chromosome.can_undergo_recombination() for chromosome in self.genotype))
+
+    '''
+    Returns recombinated copy of self
+    '''
+    def recombinate(self):
+        if self.can_undergo_recombination():
+            recombinated = copy.deepcopy(self)
+            for i in range(4):
+                if recombinated.genotype[i].can_undergo_recombination():
+                    recombinated.genotype[i] = recombinated.genotype[i].recombinate()
+            recombinated.has_recombinated = True
+            return recombinated
+        else:
+             raise ValueError("Line cannot be recombinated")
+
     def get_phenotype(self):
-        return set().union(*(chromosome.get_phenotype() for chromosome in self.genotype))
+        # TODO ask janina
+        phenotypes = set().union(*(chromosome.get_phenotype() for chromosome in self.genotype))
+        if self.has_recombinated:
+            # Lines that have recombinated can be selected for with PCR screening even if same phenotype
+            phenotypes.add(Phenotype.RECOMBINATED)
+
+        return phenotypes
+
+    def flip_gender(self):
+        opposite_gender_line = copy.deepcopy(self)
+        if self.gender == Gender.MALE:
+            # Replace Y with duplicate copy of W- or W+
+            opposite_gender_line.gender = Gender.FEMALE
+            idx_to_replace = opposite_gender_line[0].chromatid2.get_first_idx_of([GeneType.Y])
+            opposite_gender_line[0].chromatid2.genes[idx_to_replace] = opposite_gender_line[0].chromatid1.genes[idx_to_replace]
+        else:   
+            # Replace W- or W+ with Y
+            opposite_gender_line.gender = Gender.MALE
+            idx_to_replace = opposite_gender_line[0].chromatid2.get_first_idx_of([GeneType.WMINUS, GeneType.WPLUS])
+            opposite_gender_line[0].chromatid2.genes[idx_to_replace] = GeneType.Y
+        return opposite_gender_line
 
     def __getitem__(self, index):
         """Get the gene at the specified index."""
@@ -301,18 +371,34 @@ def cross_chromosome(chromosome1, chromosome2):
 
         return crossed
 
-def cross_lines(line1, line2):
-    # Return an empty list if the gender condition is not met
-    # if not ((line1.gender == Gender.MALE and line2.gender == Gender.FEMALE) or (line1.gender == Gender.FEMALE and line2.gender == Gender.MALE)):
-    #     return []
+def _cross_lines(male_line, female_line):
+    # Must cross Male with Female
+    if male_line.gender != Gender.MALE or female_line.gender != Gender.FEMALE:
+        raise ValueError("Must cross male line with female line")
 
     all_chromosome_gene_combinations = []
 
     for i in range(4):
-        crossed_genes = cross_chromosome(line1[i], line2[i])
+        crossed_genes = cross_chromosome(female_line[i], male_line[i])
         all_chromosome_gene_combinations.append(crossed_genes)
 
-    lines = [Line(*combination) for combination in product(*all_chromosome_gene_combinations)]
+    return [Line(*combination) for combination in product(*all_chromosome_gene_combinations)]
+
+def cross_lines(line1, line2):
+    # Must cross Male with Female
+    if line1.gender == line2.gender:
+        return []
+
+    male_line = line1 if line1.gender == Gender.MALE else line2
+    female_line = line1 if line1.gender == Gender.FEMALE else line2
+
+    lines_no_recombination = _cross_lines(male_line, female_line)
+
+    if (female_line.can_undergo_recombination()):
+        lines_with_recombination = _cross_lines(male_line, female_line.recombinate())
+        lines = lines_no_recombination + lines_with_recombination
+    else:
+        lines = lines_no_recombination
 
     # Handling non-hashable phenotypes
     phenotype_dict = {}
@@ -388,12 +474,21 @@ def compute_pick_for(line1, line2, progeny_line):
 
 def init_starter_lines(starter_lines):
     LINE_ID = 1
+    all_lines = []
 
+    # Add both Male and Female versions of each starting line
     for line in starter_lines:
+        line_gender_flipped = line.flip_gender()
+
         line.id = LINE_ID
+        line_gender_flipped.id = LINE_ID
+
+        all_lines.append(line)
+        all_lines.append(line_gender_flipped)
+
         LINE_ID += 1
 
-    return starter_lines, LINE_ID
+    return all_lines, LINE_ID
 
 def print_crosses(crosses, num_starter_lines):
     if crosses == None:
@@ -433,11 +528,11 @@ def main(starter_lines, target):
     print_crosses(path, s_lines[1])
 
 # Starter lines
-lineA = Line(GeneType.WMINUS, Chromosome(GeneType.S,  GeneType.CyO), Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
-lineB = Line(GeneType.WMINUS, Chromosome(GeneType.DNAD, GeneType.CyO), Chromosome(GeneType.DNDB, GeneType.TM6b), GeneType.PLUS)
-lineC = Line(GeneType.WMINUS, Chromosome(GeneType.S,  GeneType.CyO), Chromosome(GeneType.SOS, GeneType.TM2), GeneType.PLUS)
+lineA = Line(GeneType.WMINUS, GeneType.PLUS, GeneType.PLUS, GeneType.ORB)
+lineB = Line(GeneType.WMINUS, GeneType.PLUS, GeneType.DNAD, GeneType.PLUS)
+lineC = Line(GeneType.WMINUS, GeneType.XGAL4, GeneType.PLUS, GeneType.PLUS)
 
-lineD = Line(GeneType.WMINUS, Chromosome(GeneType.DNAD,  GeneType.CyO), Chromosome(GeneType.SOS, GeneType.TM2), GeneType.PLUS)
+# Target
+target = Line(GeneType.WMINUS, GeneType.XGAL4, GeneType.DNAD, GeneType.ORB)
 
-
-main([lineA, lineB, lineC], lineD)
+main([lineA, lineB, lineC], target)
