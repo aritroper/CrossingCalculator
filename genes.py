@@ -1,6 +1,7 @@
 from enum import Enum, auto
 from itertools import product
 import copy
+import heapq
 
 class Gender(Enum):
     MALE = auto()
@@ -191,6 +192,11 @@ class Chromosome():
         for gene in self.chromatid1.genes:
             if gene.homozygous_lethal and gene in self.chromatid2.genes:
                 raise ValueError("Cannot construct this chromosome")
+            if ((gene != GeneType.PLUS) and gene.recombination) and GeneType.PLUS in self.chromatid2.genes:
+                # If there is a gene in one sister chromatid that has recombination, 
+                # don't let the other sister chromatid have a PLUS
+                # TIM-- if this is wrong blame Janina
+                raise ValueError("Cannot construct this chromosome")
 
     def get_phenotype(self, has_white_eyes):
         return sorted(chromatid1.get_phenotype(has_white_eyes) + chromatid2.get_phenotype(has_white_eyes))
@@ -207,9 +213,6 @@ class Chromosome():
     Returns recombinated copy of self
     '''
     def recombinate(self):
-        # TODO double check with Janina
-        # To make this more efficient the chromosome does not need to be deep copied
-        # since the line is deep copied when recombinating line
         if self.can_undergo_recombination():
             recombinated = copy.deepcopy(self)
             recombinated.chromatid1.genes.append(recombinated.chromatid2[0])
@@ -284,8 +287,13 @@ class Line:
         """Return a list of genes in the starter line."""
         return self.genotype
 
-    def get_visual_genes(self):
-        return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
+    def get_visual_genes(self, ignore_first_chromosome=False):
+        if ignore_first_chromosome:
+            # Start from the second chromosome
+            return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype[1:]))
+        else:
+            # Include all chromosomes
+            return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
 
     def can_undergo_recombination(self):
         return (self.gender) == Gender.FEMALE and (not self.has_recombinated) and (any(chromosome.can_undergo_recombination() for chromosome in self.genotype))
@@ -305,7 +313,6 @@ class Line:
              raise ValueError("Line cannot be recombinated")
 
     def get_phenotype(self):
-        # TODO ask janina
         phenotypes = set().union(*(chromosome.get_phenotype() for chromosome in self.genotype))
         if self.has_recombinated:
             # Lines that have recombinated can be selected for with PCR screening even if same phenotype
@@ -416,40 +423,46 @@ def cross_lines(line1, line2):
 
     return unique_lines
 
+# Compute crosses -- deprioritizes lines that include recombination
 def compute_crosses(starter_lines, target):
     seen_lines = set(starter_lines)
-    queue = [(line, []) for line in starter_lines]
+    queue = []
+    counter = 0  # This counter will ensure FIFO order
+
+    for line in starter_lines:
+        # The secondary key is whether the line can recombine (0 for no, 1 for yes)
+        recombination_priority = 1 if line.can_undergo_recombination() else 0
+        heapq.heappush(queue, (counter, recombination_priority, (line, [])))
+        counter += 1
 
     while queue:
-        new_queue = [(line, []) for line in starter_lines]
-        added_any_new_line = False  # Flag to check if new lines are added
+        _, recombination_priority, (line1, path1) = heapq.heappop(queue)
 
-        for i, (line1, path1) in enumerate(queue):
-            for j in range(i + 1, len(queue)):  # Start from i + 1
-                line2, path2 = queue[j]
-                crossed_lines = cross_lines(line1, line2)
+        for line2 in starter_lines:
+            if line1 == line2:
+                continue
 
-                for crossed_line in crossed_lines:
-                    if crossed_line in seen_lines:
-                        continue  # Skip if line has already been seen
+            crossed_lines = cross_lines(line1, line2)
 
-                    if crossed_line == target:
-                        return path1 + path2 + [(line1, line2, crossed_line)]
+            for crossed_line in crossed_lines:
+                if crossed_line in seen_lines:
+                    continue
 
-                    new_queue.append((crossed_line, path1 + path2 + [(line1, line2, crossed_line)]))
-                    seen_lines.add(crossed_line)
-                    added_any_new_line = True
+                if crossed_line == target:
+                    return path1 + [(line1, line2, crossed_line)]
 
-        if not added_any_new_line:
-            return None  # No new lines added, target line is unattainable
+                new_recombination_priority = 1 if crossed_line.can_undergo_recombination() else 0
+                new_path = path1 + [(line1, line2, crossed_line)]
 
-        queue = new_queue
+                heapq.heappush(queue, (counter, new_recombination_priority, (crossed_line, new_path)))
+                counter += 1
+                seen_lines.add(crossed_line)
 
     return None
 
 def compute_pick_for(line1, line2, progeny_line):
-    genes1 = line1.get_visual_genes()
-    genes2 = line2.get_visual_genes()
+    genes1 = line1.get_visual_genes(True)
+    genes2 = line2.get_visual_genes(True)
 
     all_genes = genes1 | genes2
 
@@ -528,11 +541,11 @@ def main(starter_lines, target):
     print_crosses(path, s_lines[1])
 
 # Starter lines
-lineA = Line(GeneType.WMINUS, GeneType.PLUS, GeneType.PLUS, GeneType.ORB)
-lineB = Line(GeneType.WMINUS, GeneType.PLUS, GeneType.DNAD, GeneType.PLUS)
-lineC = Line(GeneType.WMINUS, GeneType.XGAL4, GeneType.PLUS, GeneType.PLUS)
+lineA = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(GeneType.TM2, GeneType.TM6b), GeneType.PLUS)
+lineB = Line(GeneType.WPLUS, Chromosome(GeneType.S, GeneType.CyO), Chromosome(GeneType.ORB, GeneType.TM6b), GeneType.PLUS)
+lineC = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(GeneType.XGAL4, GeneType.TM6b), GeneType.PLUS)
 
 # Target
-target = Line(GeneType.WMINUS, GeneType.XGAL4, GeneType.DNAD, GeneType.ORB)
+target = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(Chromatid([GeneType.ORB, GeneType.XGAL4]), GeneType.TM6b), GeneType.PLUS)
 
 main([lineA, lineB, lineC], target)
