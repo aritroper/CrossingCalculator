@@ -118,11 +118,11 @@ class GeneType():
     WPLUS = Mutation("W+", Phenotype.RED_EYES)
 
 class Chromatid():
-    def __init__(self, genes, generations=0):
+    def __init__(self, genes):
         if len(genes) > 2:
             raise ValueError("Chromatid should have max two genes on it")
         self.genes = genes
-        self.generations = generations
+        self.generations = 1
 
     '''
     Called when sister chromatid is not specified in the chromosome
@@ -171,7 +171,7 @@ class Chromatid():
         return hash(sorted_gene_names)
 
 class Chromosome():
-    def __init__(self, chromatid1, chromatid2=None):
+    def __init__(self, chromatid1, chromatid2=None, generations=None):
 
         # Casting magic
         if isinstance(chromatid1, Gene):
@@ -189,6 +189,10 @@ class Chromosome():
         else:
             self.chromatid1 = chromatid1
             self.chromatid2 = chromatid2
+
+        if (generations):
+            self.chromatid1.generations = generations
+            self.chromatid2.generations = generations
 
         for gene in self.chromatid1.genes:
             if gene.homozygous_lethal and gene in self.chromatid2.genes:
@@ -219,9 +223,9 @@ class Chromosome():
             recombinated.chromatid1.genes.append(recombinated.chromatid2[0])
             recombinated.chromatid2.genes[0] = GeneType.PLUS
 
-            # These will immediately generate haploids which will bring them to 0 generations
-            recombinated.chromatid1.generations = -1
-            recombinated.chromatid2.generations = -1
+            # These will immediately generate haploids which will bring them to 1st generation
+            recombinated.chromatid1.generations = 0
+            recombinated.chromatid2.generations = 0
             return recombinated
         else:
             raise ValueError("Chromosome cannot be recombinated")
@@ -233,7 +237,7 @@ class Chromosome():
         return len(self.chromatid1.genes) > 1 or len(self.chromatid2.genes) > 1
 
     def is_first_generation(self):
-        return (self.chromatid1.generations == 0) or (self.chromatid2.generations == 0)
+        return (self.chromatid1.generations == 1) or (self.chromatid2.generations == 1)
 
     # IMPORTANT: Should only be called on the first chromosome
     def has_white_eyes(self):
@@ -565,6 +569,6 @@ lineB = Line(GeneType.WPLUS, Chromosome(GeneType.S, GeneType.CyO), Chromosome(Ge
 lineC = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(GeneType.XGAL4, GeneType.TM6b), GeneType.PLUS)
 
 # Target
-target = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(Chromatid([GeneType.ORB, GeneType.XGAL4], 2), Chromatid([GeneType.TM6b], 2)), GeneType.PLUS)
+target = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(Chromatid([GeneType.ORB, GeneType.XGAL4]), GeneType.TM6b, 2), GeneType.PLUS)
 
 main([lineA, lineB, lineC], target)
