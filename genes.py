@@ -118,10 +118,11 @@ class GeneType():
     WPLUS = Mutation("W+", Phenotype.RED_EYES)
 
 class Chromatid():
-    def __init__(self, genes):
+    def __init__(self, genes, generations=0):
         if len(genes) > 2:
             raise ValueError("Chromatid should have max two genes on it")
         self.genes = genes
+        self.generations = generations
 
     '''
     Called when sister chromatid is not specified in the chromosome
@@ -217,6 +218,10 @@ class Chromosome():
             recombinated = copy.deepcopy(self)
             recombinated.chromatid1.genes.append(recombinated.chromatid2[0])
             recombinated.chromatid2.genes[0] = GeneType.PLUS
+
+            # These will immediately generate haploids which will bring them to 0 generations
+            recombinated.chromatid1.generations = -1
+            recombinated.chromatid2.generations = -1
             return recombinated
         else:
             raise ValueError("Chromosome cannot be recombinated")
@@ -226,6 +231,9 @@ class Chromosome():
     '''
     def has_recombinated(self):
         return len(self.chromatid1.genes) > 1 or len(self.chromatid2.genes) > 1
+
+    def is_first_generation(self):
+        return (self.chromatid1.generations == 0) or (self.chromatid2.generations == 0)
 
     # IMPORTANT: Should only be called on the first chromosome
     def has_white_eyes(self):
@@ -249,7 +257,11 @@ class Chromosome():
         return self.chromatid1.get_visual_genes() | self.chromatid2.get_visual_genes()
 
     def generate_haploids(self):
-        return [self.chromatid1.genes, self.chromatid2.genes]
+        chromatid1_copy = copy.deepcopy(self.chromatid1)
+        chromatid2_copy = copy.deepcopy(self.chromatid2)
+        chromatid1_copy.generations += 1
+        chromatid2_copy.generations += 1
+        return [chromatid1_copy, chromatid2_copy]
 
     def __str__(self):
         if (self.chromatid1 == self.chromatid2):
@@ -262,10 +274,10 @@ class Chromosome():
 
     def __hash__(self):
         # TODO Potentially review
-        return hash(self.chromatid1) + hash(self.chromatid2)
+        return hash((self.chromatid1, self.chromatid2))
 
 class Line:
-    def __init__(self, chromosome1=GeneType.PLUS, chromosome2=GeneType.PLUS, chromosome3=GeneType.PLUS, chromosome4=GeneType.PLUS, id=-1):
+    def __init__(self, chromosome1=GeneType.PLUS, chromosome2=GeneType.PLUS, chromosome3=GeneType.PLUS, chromosome4=GeneType.PLUS):
         genotype = [chromosome1, chromosome2, chromosome3, chromosome4]
 
         for i in range(len(genotype)):
@@ -275,7 +287,7 @@ class Line:
 
         self.genotype = genotype
         self.has_white_eyes = self[0].has_white_eyes()
-        self.id = id
+        self.id = -1
         self.has_recombinated = any(chromosome.has_recombinated() for chromosome in self.genotype)
         
         if (self[0].is_male()):
@@ -342,10 +354,17 @@ class Line:
             raise IndexError("Index out of range")
 
     def __eq__(self, other):
-        return (self[0] == other[0] and self[1] == other[1] and self[2] == other[2] and self[3] == other[3])
+        def check_equality(index):
+            return self[index] == other[index] and (
+                not self[index].has_recombinated() or 
+                not other[index].has_recombinated() or 
+                self[index].is_first_generation() == other[index].is_first_generation()
+            )
+
+        return all(check_equality(i) for i in range(4))
 
     def __hash__(self):
-        return (hash(self[0])) + (hash(self[1])) + (hash(self[2])) + (hash(self[3]))
+        return hash((self[0], self[1], self[2], self[3]))
 
     def __str__(self):
         """String representation of the starter line."""
@@ -371,7 +390,7 @@ def cross_chromosome(chromosome1, chromosome2):
         for chromatid1 in chromatids1:
             for chromatid2 in chromatids2:
                 try:
-                    c = Chromosome(Chromatid(chromatid1), Chromatid(chromatid2))
+                    c = Chromosome(chromatid1, chromatid2)
                     crossed.add(c)
                 except ValueError:
                     continue
@@ -546,6 +565,6 @@ lineB = Line(GeneType.WPLUS, Chromosome(GeneType.S, GeneType.CyO), Chromosome(Ge
 lineC = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(GeneType.XGAL4, GeneType.TM6b), GeneType.PLUS)
 
 # Target
-target = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(Chromatid([GeneType.ORB, GeneType.XGAL4]), GeneType.TM6b), GeneType.PLUS)
+target = Line(GeneType.WPLUS, GeneType.PLUS, Chromosome(Chromatid([GeneType.ORB, GeneType.XGAL4], 2), Chromatid([GeneType.TM6b], 2)), GeneType.PLUS)
 
 main([lineA, lineB, lineC], target)
