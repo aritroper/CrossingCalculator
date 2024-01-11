@@ -303,13 +303,13 @@ class Line:
         """Return a list of genes in the starter line."""
         return self.genotype
 
-    def get_visual_genes(self, ignore_first_chromosome=False):
-        if ignore_first_chromosome:
-            # Start from the second chromosome
-            return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype[1:]))
-        else:
-            # Include all chromosomes
-            return set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
+    def get_visual_genes(self):
+        s = set().union(*(chromosome.get_visual_genes() for chromosome in self.genotype))
+
+        # TODO double check this logic
+        s.discard(GeneType.Y)
+
+        return s
 
     def can_undergo_recombination(self):
         return (self.gender) == Gender.FEMALE and (not self.has_recombinated) and (any(chromosome.can_undergo_recombination() for chromosome in self.genotype))
@@ -483,9 +483,11 @@ def compute_crosses(starter_lines, target):
 
     return None
 
+# TODO
+# If gene is obviously in progeny then don't specify we pick for it
 def compute_pick_for(line1, line2, progeny_line):
-    genes1 = line1.get_visual_genes(True)
-    genes2 = line2.get_visual_genes(True)
+    genes1 = line1.get_visual_genes()
+    genes2 = line2.get_visual_genes()
 
     all_genes = genes1 | genes2
 
